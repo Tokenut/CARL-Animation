@@ -1,0 +1,280 @@
+$ cat "/Users/luosizhe/project animations/CARL/danmu.html"
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>弹幕动画</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #060C18;
+      font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    }
+
+    /* Dark navy matching reference */
+    .bg {
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 60% at 88% 12%, rgba(20, 55, 160, 0.55) 0%, transparent 60%),
+        radial-gradient(ellipse 45% 50% at 10% 90%, rgba(10, 20, 80, 0.45) 0%, transparent 60%),
+        linear-gradient(155deg, #060C18 0%, #080E20 60%, #050A14 100%);
+    }
+
+    /* Subtle blue-tinted grid — slightly more visible */
+    .grid {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(80, 120, 255, 0.09) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(80, 120, 255, 0.09) 1px, transparent 1px);
+      background-size: 80px 80px;
+    }
+
+    /* Bright grid layer — mask-image controlled by GSAP, only lines glow */
+    .grid-lit {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(140, 195, 255, 0.65) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(140, 195, 255, 0.65) 1px, transparent 1px);
+      background-size: 80px 80px;
+      pointer-events: none;
+    }
+
+    /* Soft vignette */
+    .vignette {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+      pointer-events: none;
+    }
+
+    /* Stage — pointer-events off so only bubbles are interactive */
+    #stage {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* ── Danmu bubble ── */
+    .danmu {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 18px 6px 6px;
+      border-radius: 999px;
+      white-space: nowrap;
+      will-change: transform, opacity;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1.5px solid rgba(255, 255, 255, 0.10);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      pointer-events: auto;
+      cursor: default;
+      /* Only transition the glow properties — GSAP owns transform & opacity */
+      transition: border-color 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    /* Neon-green hover / paused state */
+    .danmu.paused {
+      border-color: rgba(170, 255, 64, 0.85);
+      box-shadow:
+        0 0 0 1px rgba(170, 255, 64, 0.12),
+        0 0 10px rgba(170, 255, 64, 0.55),
+        0 0 28px rgba(170, 255, 64, 0.22),
+        0 0 55px rgba(170, 255, 64, 0.08);
+    }
+
+
+    /* ── Avatar ── */
+    .avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #111828;
+      /* Subtle ring */
+      box-shadow: 0 0 0 1.5px rgba(255,255,255,0.12);
+    }
+    .avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Username */
+    .uname {
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    /* Divider */
+    .sep {
+      width: 1px;
+      height: 13px;
+      background: rgba(255,255,255,0.16);
+      flex-shrink: 0;
+    }
+
+    /* Comment text */
+    .text {
+      font-size: 13.5px;
+      color: rgba(255,255,255,0.90);
+      letter-spacing: 0.1px;
+    }
+
+    /* Live badge */
+    .live-badge {
+      position: fixed;
+      top: 30px;
+      right: 40px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #FF4060;
+      animation: blink 1.4s ease-in-out infinite;
+    }
+    .live-text {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1;   transform: scale(1);    }
+      50%       { opacity: 0.3; transform: scale(0.7);  }
+    }
+  </style>
+</head>
+<body>
+
+<div class="bg"></div>
+<div class="grid"></div>
+<div class="grid-lit"></div>
+<div class="vignette"></div>
+
+<div class="live-badge">
+  <div class="live-dot"></div>
+  <span class="live-text">LIVE</span>
+</div>
+
+<div id="stage"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script>
+// ── 上传到 GitHub 后，把下面这行改成你的 raw 地址 ──────────────────────────
+// const DATA_URL = 'https://raw.githubusercontent.com/你的用户名/仓库名/main/danmu-data.json';
+const DATA_URL = './danmu-data.json';
+
+(async () => {
+  // ─── 加载数据 ─────────────────────────────────────────────────────────────
+  let users, texts;
+  try {
+    const res  = await fetch(DATA_URL);
+    const data = await res.json();
+    users = data.users;
+    texts = data.comments;
+  } catch (e) {
+    console.error('无法加载 danmu-data.json，请检查路径或 DATA_URL', e);
+    return;
+  }
+
+  // ─── 3 fixed tracks ───────────────────────────────────────────────────────
+  const BUBBLE_H = 56;
+  const TRACK_Y  = [0.26, 0.52, 0.78];
+  const stage    = document.getElementById('stage');
+
+  function trackCenterY(i) {
+    return TRACK_Y[i] * window.innerHeight - BUBBLE_H / 2;
+  }
+
+  // ─── Spawn a bubble on a given track ──────────────────────────────────────
+  function spawnOnTrack(trackIndex) {
+    const user    = users[Math.floor(Math.random() * users.length)];
+    const comment = texts[Math.floor(Math.random() * texts.length)];
+
+    const el     = document.createElement('div');
+    el.className = 'danmu';
+    el.innerHTML = `
+      <div class="avatar">
+        <img src="${user.avatar}" alt="${user.name}" loading="eager">
+      </div>
+      <span class="uname" style="color:#00E5FF">${user.name}</span>
+      <div class="sep"></div>
+      <span class="text">${comment}</span>
+    `;
+
+    gsap.set(el, { x: window.innerWidth + 10, y: trackCenterY(trackIndex), opacity: 0 });
+    stage.appendChild(el);
+
+    const w        = el.offsetWidth + 20;
+    const duration = (window.innerWidth + w) / gsap.utils.random(85, 125);
+
+    const tl = gsap.timeline({ onComplete: () => el.remove() });
+    tl.to(el, { opacity: 1, duration: 0.3 })
+      .to(el, { x: -w, duration, ease: 'none' }, 0)
+      .to(el, { opacity: 0, duration: 0.45 }, duration - 0.5);
+
+    el.addEventListener('mouseenter', () => { tl.pause();  el.classList.add('paused'); });
+    el.addEventListener('mouseleave', () => { tl.resume(); el.classList.remove('paused'); });
+  }
+
+  // ─── Per-track scheduler ──────────────────────────────────────────────────
+  function scheduleTrack(i) {
+    spawnOnTrack(i);
+    setTimeout(() => scheduleTrack(i), gsap.utils.random(3200, 6000));
+  }
+
+  TRACK_Y.forEach((_, i) => setTimeout(() => scheduleTrack(i), i * 1400));
+
+  // ─── Grid-line shimmer ────────────────────────────────────────────────────
+  const gridLit   = document.querySelector('.grid-lit');
+  const mPos      = { x: 25, y: 40 };
+  const waypoints = [
+    { x: 22, y: 35 }, { x: 76, y: 16 },
+    { x: 58, y: 80 }, { x: 15, y: 65 }, { x: 52, y: 28 },
+  ];
+  let mIdx = 0;
+
+  function applyMask() {
+    const g = `radial-gradient(ellipse 260px 200px at ${mPos.x.toFixed(2)}% ${mPos.y.toFixed(2)}%, black 0%, transparent 100%)`;
+    gridLit.style.maskImage = g;
+    gridLit.style.webkitMaskImage = g;
+  }
+
+  function driftMask() {
+    const wp = waypoints[mIdx++ % waypoints.length];
+    gsap.to(mPos, {
+      x: wp.x, y: wp.y,
+      duration: gsap.utils.random(9, 15),
+      ease: 'sine.inOut',
+      onUpdate: applyMask,
+      onComplete: driftMask,
+    });
+  }
+
+  applyMask();
+  driftMask();
+})();
+</script>
+</body>
+</html>
